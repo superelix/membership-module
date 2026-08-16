@@ -53,7 +53,7 @@ sequenceDiagram
     C->>API: POST /subscriptions {planCode} [Idempotency-Key]
     API->>SS: subscribe(memberId, planCode, idempotencyKey)
     SS->>SS: check IdempotencyRecord (ADR-005) — if hit, replay stored response
-    SS->>DB: lookup Plan by code; must be ACTIVE (else 404/409)
+    SS->>DB: lookup Plan by code, must be ACTIVE (else 404/409)
     SS->>DB: INSERT Subscription(status=ACTIVE) — unique index on active-ish (memberId) is the real guard
     alt insert violates unique constraint (already subscribed / concurrent double-submit)
         DB-->>SS: constraint violation

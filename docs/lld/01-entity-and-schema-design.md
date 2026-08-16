@@ -75,7 +75,7 @@ erDiagram
         long version
     }
     MEMBERSHIP_STATUS {
-        uuid subscriptionId PK_FK
+        uuid subscriptionId PK, FK
         uuid currentTierId FK
         timestamp lastEvaluatedAt
         long version
@@ -87,7 +87,7 @@ erDiagram
         string name
     }
     TIER_CRITERIA_SET {
-        uuid tierId PK_FK
+        uuid tierId PK, FK
         string combinator
         long version
     }
