@@ -7,9 +7,12 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import com.application.membershipmodule.common.exception.MalformedConfigException;
+
 import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit-level (no Spring context) coverage of MP-BEN-03 / MP-AC-017 / MP-AC-018 — the >= inclusive
@@ -47,5 +50,13 @@ class FreeDeliveryPolicyTest {
         var context = new BenefitContext(UUID.randomUUID(), Optional.empty(), Optional.of(cart));
 
         assertThat(policy.isApplicable(config, context)).isTrue();
+    }
+
+    @Test
+    void malformedParamsJsonThrowsMalformedConfigException() {
+        // docs/reviews/03-design-principles-review.md Finding 3 - corrupt admin/seed-authored
+        // config is a server-side problem (500 MALFORMED_CONFIG), not a caller error.
+        assertThatThrownBy(() -> policy.parseConfig("{not valid json"))
+                .isInstanceOf(MalformedConfigException.class);
     }
 }

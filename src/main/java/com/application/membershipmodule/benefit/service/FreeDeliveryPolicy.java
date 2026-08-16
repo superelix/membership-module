@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import com.application.membershipmodule.benefit.domain.BenefitType;
+import com.application.membershipmodule.common.exception.MalformedConfigException;
 import tools.jackson.databind.ObjectMapper;
 
 /** docs/lld/03-benefit-policy-engine.md §1. Day-1 benefit. */
@@ -31,7 +32,8 @@ public class FreeDeliveryPolicy implements BenefitPolicy {
         try {
             return objectMapper.readValue(paramsJson, FreeDeliveryConfig.class);
         } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid FREE_DELIVERY params: " + paramsJson, e);
+            // Corrupt admin/seed-authored config, not a caller problem - docs/reviews/03 Finding 3.
+            throw new MalformedConfigException("Invalid FREE_DELIVERY params: " + paramsJson, e);
         }
     }
 

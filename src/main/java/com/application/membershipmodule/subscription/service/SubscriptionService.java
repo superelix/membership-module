@@ -135,7 +135,8 @@ public class SubscriptionService {
     public SubscriptionResponse switchPlan(Member member, String newPlanCode) {
         Subscription sub = subscriptionRepository.findByMemberIdAndStatus(member.getId(), SubscriptionStatus.ACTIVE)
                 .orElseThrow(() -> new SubscriptionNotFoundException(member.getExternalUserId()));
-        Plan currentPlan = planRepository.findById(sub.getPlanId()).orElseThrow();
+        Plan currentPlan = planRepository.findById(sub.getPlanId())
+                .orElseThrow(() -> new PlanNotFoundException(sub.getPlanId().toString()));
         if (currentPlan.getPlanCode().equals(newPlanCode)) {
             throw new SamePlanException(newPlanCode);
         }
@@ -153,7 +154,8 @@ public class SubscriptionService {
     public SubscriptionResponse cancel(Member member) {
         Subscription sub = subscriptionRepository.findByMemberId(member.getId())
                 .orElseThrow(() -> new SubscriptionNotFoundException(member.getExternalUserId()));
-        Plan plan = planRepository.findById(sub.getPlanId()).orElseThrow();
+        Plan plan = planRepository.findById(sub.getPlanId())
+                .orElseThrow(() -> new PlanNotFoundException(sub.getPlanId().toString()));
         if (sub.getStatus() == SubscriptionStatus.CANCELLED) {
             return toSubscriptionResponse(sub, plan);
         }
@@ -170,7 +172,8 @@ public class SubscriptionService {
     public CurrentMembershipResponse getCurrentMembership(Member member) {
         Subscription sub = subscriptionRepository.findByMemberId(member.getId())
                 .orElseThrow(() -> new NoSubscriptionException(member.getExternalUserId()));
-        Plan plan = planRepository.findById(sub.getPlanId()).orElseThrow();
+        Plan plan = planRepository.findById(sub.getPlanId())
+                .orElseThrow(() -> new PlanNotFoundException(sub.getPlanId().toString()));
 
         MembershipStatus status = membershipStatusRepository.findById(sub.getId()).orElse(null);
         UUID currentTierId = status == null ? null : status.getCurrentTierId();
@@ -195,7 +198,9 @@ public class SubscriptionService {
     }
 
     private List<ProgressDto> computeProgress(Member member, Tier currentTier) {
-        List<Tier> tiersAsc = tierRepository.findAllByOrderByRankDesc().reversed();
+        // Single shared "tiers ascending by rank" source - docs/reviews/03-design-principles-review.md
+        // Finding 2 (previously reimplemented independently here and in TierController).
+        List<Tier> tiersAsc = tierRepository.findAllByOrderByRankAsc();
         Tier next = null;
         int currentRank = currentTier == null ? -1 : currentTier.getRank();
         for (Tier t : tiersAsc) {

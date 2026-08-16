@@ -13,5 +13,7 @@ public interface TierRepository extends JpaRepository<Tier, UUID> {
 
     List<Tier> findAllByOrderByRankDesc();
 
+    List<Tier> findAllByOrderByRankAsc();
+
     boolean existsByRank(int rank);
 }

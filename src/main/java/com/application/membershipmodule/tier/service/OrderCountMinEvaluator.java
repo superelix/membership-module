@@ -5,6 +5,7 @@ import java.time.Instant;
 
 import org.springframework.stereotype.Component;
 
+import com.application.membershipmodule.common.exception.MalformedConfigException;
 import com.application.membershipmodule.tier.domain.TierCriterion;
 import com.application.membershipmodule.tier.domain.TierCriterionType;
 import tools.jackson.databind.ObjectMapper;
@@ -51,7 +52,8 @@ public class OrderCountMinEvaluator implements TierCriterionEvaluator {
         try {
             return objectMapper.readValue(criterion.getParamsJson(), Params.class);
         } catch (Exception e) {
-            throw new IllegalStateException("Invalid ORDER_COUNT_MIN params: " + criterion.getParamsJson(), e);
+            // Corrupt admin/seed-authored config, not a caller problem - docs/reviews/03 Finding 3.
+            throw new MalformedConfigException("Invalid ORDER_COUNT_MIN params: " + criterion.getParamsJson(), e);
         }
     }
 }

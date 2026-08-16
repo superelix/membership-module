@@ -8,6 +8,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import com.application.membershipmodule.benefit.domain.BenefitType;
+import com.application.membershipmodule.common.exception.MalformedConfigException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -39,7 +40,8 @@ public class PercentageDiscountPolicy implements BenefitPolicy {
         try {
             return objectMapper.readValue(paramsJson, PercentageDiscountConfig.class);
         } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid PERCENTAGE_DISCOUNT params: " + paramsJson, e);
+            // Corrupt admin/seed-authored config, not a caller problem - docs/reviews/03 Finding 3.
+            throw new MalformedConfigException("Invalid PERCENTAGE_DISCOUNT params: " + paramsJson, e);
         }
     }
 
