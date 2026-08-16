@@ -115,6 +115,7 @@ public class SeedDataRunner implements CommandLineRunner {
 
     protected void seedPlans() {
         planRepository.save(new Plan("MONTHLY", "Monthly", BillingPeriod.MONTHLY, new BigDecimal("299.00"), "INR", PlanStatus.ACTIVE));
+        planRepository.save(new Plan("QUARTERLY", "Quarterly", BillingPeriod.QUARTERLY, new BigDecimal("799.00"), "INR", PlanStatus.ACTIVE));
         planRepository.save(new Plan("YEARLY", "Yearly", BillingPeriod.YEARLY, new BigDecimal("2499.00"), "INR", PlanStatus.ACTIVE));
     }
 

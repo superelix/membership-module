@@ -3,9 +3,9 @@ package com.application.membershipmodule.plan.domain;
 import java.time.Period;
 
 /**
- * docs/prd/01-membership-plans.md §3. Day-1 seeds MONTHLY and YEARLY only; QUARTERLY is
- * Increment 1 (docs/hld/README.md §3), but the enum value ships now since it's zero-cost and
- * avoids a later schema-adjacent change.
+ * docs/prd/01-membership-plans.md §3. All three plan cadences ship Day-1 (see
+ * docs/prd/01-membership-plans.md §3, MP-PLAN-01 — the source brief names Monthly, Quarterly, and
+ * Yearly explicitly).
  */
 public enum BillingPeriod {
     MONTHLY(Period.ofMonths(1)),
