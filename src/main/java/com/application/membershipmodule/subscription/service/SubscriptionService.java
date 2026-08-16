@@ -67,6 +67,7 @@ public class SubscriptionService {
     private final OrderHistoryReader orderHistoryReader;
     private final TierEvaluationService tierEvaluationService;
     private final IdempotencyService idempotencyService;
+    private final PendingPlanChangeApplier pendingPlanChangeApplier;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -76,6 +77,7 @@ public class SubscriptionService {
             TierCriterionRepository tierCriterionRepository, TierCriterionEvaluatorRegistry criterionRegistry,
             OrderHistoryReader orderHistoryReader,
             TierEvaluationService tierEvaluationService, IdempotencyService idempotencyService,
+            PendingPlanChangeApplier pendingPlanChangeApplier,
             ObjectMapper objectMapper, Clock clock) {
         this.subscriptionRepository = subscriptionRepository;
         this.membershipStatusRepository = membershipStatusRepository;
@@ -87,6 +89,7 @@ public class SubscriptionService {
         this.orderHistoryReader = orderHistoryReader;
         this.tierEvaluationService = tierEvaluationService;
         this.idempotencyService = idempotencyService;
+        this.pendingPlanChangeApplier = pendingPlanChangeApplier;
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
@@ -166,6 +169,53 @@ public class SubscriptionService {
         sub.setAutoRenew(false);
         subscriptionRepository.save(sub);
         return toSubscriptionResponse(sub, plan);
+    }
+
+    /**
+     * Applies the member's pending plan change if one exists and its {@code effectiveAt} has
+     * passed — the manual/demo-triggered single-member counterpart to
+     * {@link #applyAllDuePlanChanges()} (docs/lld/04-subscription-lifecycle.md §3), matching the
+     * existing manual-trigger pattern already established for tier recompute
+     * ({@code POST /internal/tier-recompute}). Safe to call anytime: silently a no-op if there's
+     * no subscription in a status this applies to, or nothing due yet.
+     */
+    @Transactional
+    public SubscriptionResponse applyDuePlanChangeIfNeeded(Member member) {
+        Subscription sub = subscriptionRepository.findByMemberId(member.getId())
+                .orElseThrow(() -> new NoSubscriptionException(member.getExternalUserId()));
+        if (sub.getStatus() == SubscriptionStatus.ACTIVE) {
+            pendingPlanChangeApplier.applyIfStillDue(sub.getId(), Instant.now(clock));
+        }
+        // Re-fetch: applyIfStillDue runs in its own transaction (separate bean, see its javadoc)
+        // and may have mutated the row this method's own copy no longer reflects.
+        Subscription refreshed = subscriptionRepository.findById(sub.getId()).orElseThrow();
+        Plan plan = planRepository.findById(refreshed.getPlanId())
+                .orElseThrow(() -> new PlanNotFoundException(refreshed.getPlanId().toString()));
+        return toSubscriptionResponse(refreshed, plan);
+    }
+
+    /**
+     * Bulk counterpart used by {@link PendingPlanChangeScheduler}. Deliberately not
+     * {@code @Transactional} itself — the query here is a plain read, and each subscription's
+     * actual mutation happens inside {@link PendingPlanChangeApplier#applyIfStillDue}'s own
+     * transaction via a genuine cross-bean call, so one subscription's failure can't roll back
+     * another's already-applied change, and this method never risks the self-invocation pitfall
+     * documented on {@link PendingPlanChangeApplier}.
+     *
+     * @return how many subscriptions actually had a change applied (some in the due-list may no
+     *         longer qualify by the time {@code applyIfStillDue} re-checks them).
+     */
+    public int applyAllDuePlanChanges() {
+        Instant now = Instant.now(clock);
+        List<Subscription> due = subscriptionRepository
+                .findByStatusAndPendingPlanChangeJsonIsNotNullAndCurrentPeriodEndBefore(SubscriptionStatus.ACTIVE, now);
+        int applied = 0;
+        for (Subscription sub : due) {
+            if (pendingPlanChangeApplier.applyIfStillDue(sub.getId(), now)) {
+                applied++;
+            }
+        }
+        return applied;
     }
 
     @Transactional(readOnly = true)
@@ -265,10 +315,6 @@ public class SubscriptionService {
     }
 
     private long periodDays(Plan plan) {
-        return switch (plan.getBillingPeriod()) {
-            case MONTHLY -> 30;
-            case QUARTERLY -> 90;
-            case YEARLY -> 365;
-        };
+        return plan.getBillingPeriod().days();
     }
 }

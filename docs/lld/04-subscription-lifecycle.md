@@ -86,9 +86,14 @@ function switchPlan(memberId, newPlanCode):
     save(sub)  // optimistic @Version guards concurrent admin/renewal writes to the same row
     return sub with pendingPlanChange in response
 ```
-The actual `planId`/`priceAtSubscription` swap happens inside the renewal job (§5, Increment 2)
-when `currentPeriodEnd` is reached and `pendingPlanChange` is non-null — this keeps "request a
-switch" and "apply a switch" as two separate, independently testable operations.
+The actual `planId`/`priceAtSubscription` swap is implemented — `PendingPlanChangeApplier` +
+`PendingPlanChangeScheduler` (a real `@Scheduled` job, `membership.subscription.plan-change-check-interval-ms`),
+plus a manual `POST /internal/subscriptions/apply-pending-plan-change` backstop matching the tier
+recompute pattern. This shipped as a narrower, standalone slice of the §5 renewal job below — the
+swap-on-due-date mechanism only, without the `PaymentStub` billing simulation, grace period, or
+`PAYMENT_FAILED` handling §5 also describes, which remain Increment 2. "Request a switch" and
+"apply a switch" are still two separate operations, as designed — subscribeService.switchPlan()
+only ever writes the pending record; a different bean applies it later.
 
 ## 4. Cancel (`MP-SUB-04`, Day-1)
 
