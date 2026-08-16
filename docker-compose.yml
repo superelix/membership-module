@@ -16,5 +16,23 @@ services:
       timeout: 5s
       retries: 10
 
+  # docs/hld/README.md ADR-004 addendum: the OrderPlacedEvent -> tier-recompute handoff now goes
+  # through a Redis Stream instead of an in-process direct call. Persisted (named volume, AOF-style
+  # durability via the default RDB snapshotting) for the same reason Postgres is: messages should
+  # survive a plain container restart, not just process uptime.
+  redis:
+    image: redis:7-alpine
+    container_name: membership-module-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - membership-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   membership-postgres-data:
+  membership-redis-data:

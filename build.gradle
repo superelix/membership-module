@@ -28,6 +28,10 @@ dependencies {
 	// transitively.
 	implementation 'org.springframework.boot:spring-boot-starter-liquibase'
 	runtimeOnly 'org.postgresql:postgresql'
+	// Redis Streams handoff for OrderPlacedEvent -> tier recompute (docs/hld/README.md ADR-004
+	// addendum). Verified empirically, same as Liquibase above: plain 'spring-data-redis' alone is
+	// not enough on Boot 4.1 - the '-starter-' variant is required to trigger autoconfiguration.
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -42,6 +46,11 @@ dependencies {
 	testImplementation 'org.testcontainers:testcontainers'
 	testImplementation 'org.testcontainers:junit-jupiter'
 	testImplementation 'org.testcontainers:postgresql'
+	// No 'org.testcontainers:redis' module exists on Maven Central (verified empirically); the
+	// community 'com.redis:testcontainers-redis' module is real but pulls in a third group id for
+	// a single generic container use - a plain GenericContainer("redis:7-alpine") (already covered
+	// by the 'org.testcontainers:testcontainers' core dependency above) is simpler and matches the
+	// narrow-scope guidance for this change.
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'

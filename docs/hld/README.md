@@ -114,7 +114,7 @@ recovery yet. This is an accepted, explicitly-recorded gap for the walking-skele
 | Persistence | Spring Data JPA (Hibernate) + H2, file-mode (`jdbc:h2:file:./data/membership;AUTO_SERVER=TRUE`) | Zero-config `./gradlew bootRun`, persists across restarts, schema written Postgres-compatible (standard SQL types, `TEXT` not H2-JSON). **Required addition for engineering**: `build.gradle` currently has no persistence dependency — add `spring-boot-starter-data-jpa` and `com.h2database:h2` (runtime scope). This document does not edit `build.gradle`; flagged here as the actionable item. |
 | Concurrency (tier recompute chokepoint) | **Dual-layer**: in-process per-member `ReentrantLock` (primary, correct-by-construction for the stated single-instance deployment) + DB `SELECT ... FOR UPDATE` pessimistic lock on `MembershipStatus` (defense-in-depth today, becomes primary once scaled to multi-instance/Postgres) | See ADR-003 below and `06-concurrency-and-transactions.md` §1 — this is the direct resolution of Finding 4; it does not assert H2's `FOR UPDATE` blocking semantics are proven, and doesn't need to, because correctness does not depend solely on them. |
 | Concurrency (rare-conflict paths) | Optimistic `@Version` (`Plan`, `Subscription`, `TierCriteriaSet`, `TierBenefit`) | Conflicts are rare + a client retry is cheap/visible here, unlike the tier-recompute chokepoint. Unchanged from PRD 08 §2, which the review calls the best-argued section of the PRD. |
-| Event mechanism | Spring `ApplicationEventPublisher`, published `AFTER_COMMIT` via `@TransactionalEventListener`, consumed in-process (optionally `@Async` on a dedicated executor) | No outbox, no broker. See ADR-004 (resolves Finding 3). Sufficient because deployment is single-instance and the nightly batch is the stated, sufficient self-heal path. |
+| Event mechanism | `OrderPlacedEvent` published in-process (`AFTER_COMMIT` via `@TransactionalEventListener`), handed off to a Redis Stream (`XADD`) for the actual tier recompute, consumed by `TierRecomputeStreamConsumer` via a consumer group | Originally in-process-only, no broker (ADR-004, resolves Finding 3) — superseded by ADR-004's 2026-08-17 addendum after a real production bug (`TransactionRequiredException` on every order placement) turned out to require a genuinely separate execution context, not just a retry. Redis is now a real infra dependency; see the addendum for why Redis Streams over a DB outbox table. |
 | Scheduling | Spring `@Scheduled` (single JVM, no distributed scheduler) | Matches single-instance assumption (PRD 08 §1); trivial to swap for ShedLock/Quartz if the deployment ever scales out. First real instance shipped: `PendingPlanChangeScheduler` (pending-plan-change rollover, §3 above). The nightly tier-reconciliation batch on this same mechanism remains Increment 1. |
 | Benefit/criteria parameters | `TEXT` column + Jackson (de)serialization to a config type owned by each policy/evaluator, validated at admin-write time | Keeps a new benefit/criterion type additive at the schema level — the concrete mechanism behind the extensibility claim (PRD 07 §5 Q2). |
 | Strategy registry key type | **`String`**, not the `TierCriterionType`/`BenefitType` enum (the enums remain as a shipped-type catalog for seed data/DTOs only) | See ADR-006 below (resolves Finding N4) — a closed enum cannot be extended from outside its owning file, which made the original extensibility-proof tests uncompilable. |
@@ -278,6 +278,54 @@ read as though the bound already held. It is now stated in §3 above and in
 `docs/lld/02-tier-evaluation-engine.md` §3.1: Day-1's bound is session-scoped/best-effort, backed
 only by the manually-triggerable recompute endpoint, which is pulled explicitly into the Day-1
 scope column for exactly this reason.
+
+**Addendum (2026-08-17) — superseded in part: `OrderPlacedEvent` → tier-recompute now goes through
+Redis Streams, not a direct in-process call.** `docs/reviews/04-e2e-prd-verification.md` FAIL #1
+found that the direct-call design this ADR settled on had a real, 100%-reproducible bug in
+production, not just a theoretical gap: `TierRecomputeOnOrderPlacedListener`'s
+`@TransactionalEventListener(phase = AFTER_COMMIT)` method called
+`TierEvaluationService.evaluate(...)` directly, and that call — a nested `@Transactional` call —
+runs synchronously *inside* Spring's `AFTER_COMMIT` transaction-synchronization callback, which
+itself executes as part of the placing transaction's own `commit()` sequence. A fresh transaction
+could not reliably bind in that exact execution context, so every real order placement threw
+`TransactionRequiredException: No active transaction`, silently swallowed by the very try/catch
+this ADR specified — meaning tier promotion from real orders **never actually happened live**,
+only via `SUBSCRIBE` or the manual `/internal/tier-recompute` trigger. This is a structural problem
+(the listener needs a genuinely separate execution context, not just a retry), not the kind of gap
+an `@Async` annotation alone reliably closes — `@Async` moves the call to a different thread, which
+likely would have worked, but gives up durability: a crash or restart between publish and
+processing loses the event entirely, with no replay.
+**Decision**: `TierRecomputeOnOrderPlacedListener` now only publishes a small message (`memberId`,
+`orderId`, `triggeredBy`) to a Redis Stream (`XADD`) — not a JPA call, so it cannot hit the original
+bug. A new consumer (`tier.service.TierRecomputeStreamConsumer`, via Spring Data Redis's
+`StreamMessageListenerContainer` and a consumer group) reads the stream on its own polling thread,
+genuinely outside any transaction-completion callback, and calls
+`TierEvaluationService.evaluate(...)` as a true top-level call — the structural mismatch that
+caused the bug cannot recur here, by construction. `XACK` only happens after `evaluate()` succeeds;
+an unacknowledged message stays in the consumer group's pending-entries list, reclaimable later —
+matching this ADR's original "no custom retry/backoff policy" scoping, just on a different
+transport.
+**Why Redis Streams and not a DB outbox table** (the alternative this ADR originally rejected for a
+different reason): an outbox table would also fix the structural bug — a second table plus a
+`@Scheduled` relay polling it would equally give the consumer a fresh execution context. Redis
+Streams was chosen instead because (a) it needs no separate relay/dispatcher process — the stream
+*is* the queue, Spring Data Redis's consumer-group support is push-based, not a polling loop this
+codebase would have to hand-write; (b) it comes with consumer groups, delivery tracking, and a
+pending-entries list built in, which an outbox table would require reimplementing by hand; (c) this
+is still a single-instance deployment (unchanged from this ADR's original context), so Redis's own
+persistence (the `redis:7-alpine` container's default RDB snapshotting, backed by the named volume
+in `docker-compose.yml`) is sufficient durability — a distributed, multi-instance-safe broker was
+never the requirement here, only "survives a restart, doesn't require the listener to run inside a
+commit callback."
+**Consequences**: this reverses the "no outbox, no broker" half of the original Decision above —
+Redis is now a real infrastructure dependency (`docker-compose.yml`'s `redis` service), not just a
+DB-only design. The "sole tier-recompute resilience mechanism is the nightly batch" framing is also
+narrowed: the Redis Stream pipeline is now the *primary* live mechanism (working automatically,
+unlike before), with the manual `/internal/tier-recompute` trigger and the future nightly batch
+remaining as the self-heal path for the (now much narrower) set of failures — Redis being briefly
+unreachable, or the consumer itself throwing — not for the every-single-order failure this ADR
+originally, unknowingly, shipped. See `docs/lld/02-tier-evaluation-engine.md` §3/§3.2 for the
+updated trigger-point detail.
 
 ### ADR-005 — Idempotency scoped to `POST /subscriptions` and `POST /checkout`
 **Status**: Accepted.

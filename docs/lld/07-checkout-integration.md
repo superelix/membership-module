@@ -88,6 +88,17 @@ grandTotal = subtotal - discountTotal + deliveryFee
 
 ## 4. Order-Placement / Tier-Recompute Decoupling (resolves Review Finding 3)
 
+> **Superseded in part (2026-08-17)**: the code sketch and "no outbox, no broker" framing below
+> describe the *original* ADR-004 decision. That direct-call design had a real, 100%-reproducible
+> bug — a nested `@Transactional` call from inside `AFTER_COMMIT` couldn't bind a fresh transaction
+> (`docs/reviews/04-e2e-prd-verification.md` FAIL #1) — fixed by routing through a Redis Stream
+> instead. The decoupling *principle* below (never block/roll back order placement on a
+> tier-recompute failure) is unchanged and still correctly describes the system's behavior; only
+> the transport changed. See `docs/hld/README.md` ADR-004's addendum and
+> `docs/lld/02-tier-evaluation-engine.md` §3.2 for the current design — this section is kept for
+> historical context on *why* the decoupling exists, not as an accurate description of the current
+> call path.
+
 PRD `05` and `README` both referenced an unspecified "outbox/retry pattern" for a failed
 tier-recompute after order placement. **This design drops that language entirely** (ADR-004,
 `docs/hld/README.md` §6) and implements the decoupling with two ordinary Spring mechanisms:

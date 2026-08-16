@@ -151,7 +151,8 @@ logic (PRD 02 §5's explicit requirement):
 ```mermaid
 flowchart LR
     A["Subscribe\n(synchronous, MP-SUB-02)"] --> E[TierEvaluationService.evaluate]
-    B["OrderPlacedEvent\n@TransactionalEventListener(AFTER_COMMIT)"] --> E
+    B["OrderPlacedEvent\n@TransactionalEventListener(AFTER_COMMIT)"] -->|XADD| R[(Redis Stream\nmembership:tier-recompute)]
+    R -->|consumer group,\nfresh execution context| E
     C["Nightly @Scheduled batch\n(Increment 1, all ACTIVE members)"] --> E
     D["POST /internal/tier-recompute\n(Day-1 manual backstop, see §3.1)"] --> E
     E --> F[(MembershipStatus)]
@@ -162,35 +163,69 @@ flowchart LR
 1. **Subscribe** (Day-1): `SubscriptionService.subscribe(...)` calls `evaluate(memberId)`
    synchronously as the last step, so the response's `currentTier` is correct immediately
    (MP-SUB-02).
-2. **Order placement** (Day-1): `CheckoutOrchestrator.placeOrder(...)` publishes
-   `OrderPlacedEvent` after the order-placement transaction commits; a listener calls `evaluate`.
-   Failure here is caught and logged, never propagated (ADR-004) — order placement is unaffected.
+2. **Order placement** (Day-1, **Redis Streams as of the ADR-004 addendum** — see §3.2): after the
+   order-placement transaction commits, `TierRecomputeOnOrderPlacedListener` publishes a small
+   message (`memberId`, `orderId`, `triggeredBy`) to a Redis Stream via `XADD`, rather than calling
+   `evaluate` directly. `TierRecomputeStreamConsumer` reads the stream (a consumer group, at-least-
+   once, `XACK` only after `evaluate` succeeds) and calls `evaluate` on its own polling thread — a
+   genuinely fresh top-level call, not nested inside the placing request's transaction-completion
+   callback. A processing failure leaves the message unacknowledged (reclaimable via the stream's
+   pending-entries list) rather than propagating — order placement itself is never affected
+   (MP-CHK-04), same guarantee as before, different mechanism.
 3. **Nightly batch** (Increment 1): `@Scheduled(cron = "0 0 2 * * *")` iterates every
    `Subscription.status = ACTIVE` member (MP-TIER-EDGE-07 — excludes cancelled/expired) and calls
    `evaluate`. This is what catches value-window criteria aging out (MP-AC-009) and self-heals any
-   missed/failed event (replaces the dropped "outbox" mechanism, ADR-004).
+   remaining missed/failed event (a narrower job than before the ADR-004 addendum — see §3.2).
 4. **Manual recompute trigger — ships Day-1, not Increment 1** (resolves N5/N8, second review
    pass): `POST /internal/tier-recompute` (non-public, demo/test-only, takes a `memberId`) calls
-   `TierEvaluationService.evaluate(memberId)` directly. This is explicitly pulled into the Day-1
-   column of `docs/hld/README.md` §3 (see that file's Review Response section) because, until the
-   nightly batch ships in Increment 1, it is the **only** compensating mechanism for a swallowed
-   `OrderPlacedEvent`-listener failure (see §3.1 below) — without it, Day-1 has no self-heal path
-   at all, only a best-effort one that can silently strand a member at the wrong tier.
+   `TierEvaluationService.evaluate(memberId)` directly. Originally the *only* Day-1 compensating
+   mechanism for a swallowed listener failure (see the historical note in §3.1); still shipped,
+   still useful for demos and for the narrower set of failures §3.2 describes, but no longer the
+   sole backstop it once had to be.
 
-### 3.1 Day-1 Tier-Consistency Bound (resolves N5)
+### 3.1 Day-1 Tier-Consistency Bound — historical note, superseded by §3.2
 
-ADR-004 (`docs/hld/README.md` §6) states the tier-recompute pipeline is eventually consistent with
-a 24-hour ceiling, backed by the nightly batch. **That 24-hour ceiling is an Increment-1 property,
-not a Day-1 one** — on Day-1, the nightly batch doesn't exist yet, so the only trigger is the
-`AFTER_COMMIT` event listener, whose failures are caught and logged, never retried automatically
-(`07-checkout-integration.md` §4). Stated plainly rather than left implicit: **Day-1's
-tier-consistency bound is session-scoped and best-effort — a failure in the listener leaves a
-member's tier stale until someone (a demo operator, an integration test) calls the manual trigger
-above, with no automatic recovery window.** This is an accepted, explicitly-recorded gap for the
-walking-skeleton slice, not a silent one; it closes itself automatically the moment Increment 1's
-nightly batch ships. `MP-AC-014`/`MP-AC-015` (the flagship concurrency scenario) are unaffected in
-their *correctness* guarantee — the lock still prevents a lost update on the happy path — but a
-mid-evaluation exception on Day-1 has no automatic backstop until Increment 1.
+This section originally stated (resolving second-review Finding N5) that Day-1's tier-consistency
+bound was session-scoped and best-effort, because the `AFTER_COMMIT` event listener's failures were
+caught, logged, and never retried automatically, with no nightly batch yet to self-heal them. That
+was accurate as a *scoping* statement, but the implementation behind it — a direct
+`TierEvaluationService.evaluate(...)` call from inside `@TransactionalEventListener(phase =
+AFTER_COMMIT)` — turned out to have a real, 100%-reproducible bug, not just an accepted gap: the
+nested `@Transactional` call could not bind a fresh transaction in that execution context, so
+**every** live order placement's tier recompute failed with `TransactionRequiredException`, silently
+swallowed (docs/reviews/04-e2e-prd-verification.md FAIL #1). `MP-AC-014`/`MP-AC-015`'s underlying
+*correctness* guarantee (the lock preventing a lost update) was never affected by this — but the
+live, automatic promotion path itself simply didn't work, which is a materially worse gap than "no
+automatic recovery window." See §3.2 for the fix and the (now much narrower) bound that replaces
+this section's original claim.
+
+### 3.2 Redis Streams Addendum (fixes the bug §3.1 originally only scoped around)
+
+**Decision** (full rationale in `docs/hld/README.md` ADR-004 addendum, dated 2026-08-17): the
+`OrderPlacedEvent` listener no longer calls `TierEvaluationService.evaluate(...)` directly. It
+publishes to a Redis Stream (`membership:tier-recompute`) instead; `TierRecomputeStreamConsumer`
+(a `StreamMessageListenerContainer` with a single consumer group and consumer, matching how
+narrowly `PendingPlanChangeScheduler` was scoped — no DLQ, no multi-instance rebalancing, no custom
+retry/backoff beyond the stream's own pending-entries list) does the actual evaluation, on its own
+thread, genuinely outside any transaction-completion callback. This is a structural fix, not a
+retry: the execution context that caused the original bug (a nested transactional call inside
+`AFTER_COMMIT`) cannot occur in the consumer's code path at all.
+
+**What this changes about the tier-consistency bound**: with the automatic path now actually
+working, Day-1's practical bound is back to "seconds, under normal load" (matching the *intent*
+PRD 02 §5 always stated for the event-driven trigger) for the overwhelming majority of orders. The
+manual trigger and the future nightly batch remain as the self-heal path for the narrower set of
+failures that can still occur — Redis briefly unreachable at publish time, or the consumer itself
+throwing (e.g. `MalformedConfigException` from corrupt `TierCriterion.paramsJson`) — not for every
+single order, which is what the pre-fix implementation actually, silently, did.
+
+**Verification**: `e2e.OrderPlacedAutoTierPromotionE2ETest` places 5 real orders through real HTTP
+(`MockMvc`, full `DispatcherServlet` dispatch, real committing transactions) against real Postgres
+and real Redis (Testcontainers), and asserts `GET /subscriptions/me` reaches `GOLD` **without ever
+calling the manual trigger** — the same class of test gap (`docs/reviews/04-e2e-prd-verification.md`
+FAIL #1's own diagnosis: "none of [the existing tests] let a real `ApplicationEvent` traverse
+Spring's actual `AFTER_COMMIT` synchronization machinery") that let the original bug ship
+undetected is deliberately closed here, not repeated.
 
 ## 4. Promotion / Demotion Algorithm (pseudocode)
 
