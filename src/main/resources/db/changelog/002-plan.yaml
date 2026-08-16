@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-plan
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 Plan"
+      changes:
+        - createTable:
+            tableName: plan
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: plan_code, type: varchar(255), constraints: { nullable: false, unique: true, uniqueConstraintName: uk_plan_plan_code } }
+              - column: { name: name, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: billing_period, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: price, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: currency, type: varchar(3), constraints: { nullable: false } }
+              - column: { name: status, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: version, type: bigint, defaultValueNumeric: 0, constraints: { nullable: false } }

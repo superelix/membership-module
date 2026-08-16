@@ -1,0 +1,28 @@
+databaseChangeLog:
+  - changeSet:
+      id: 010-order-item
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 OrderItem"
+      changes:
+        - createTable:
+            tableName: order_item
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: order_id, type: uuid, constraints: { nullable: false } }
+              - column: { name: product_id, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: category_code, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: unit_price, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: quantity, type: int, constraints: { nullable: false } }
+              - column: { name: line_total, type: "numeric(12,2)", constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: order_item
+            baseColumnNames: order_id
+            referencedTableName: orders
+            referencedColumnNames: id
+            constraintName: fk_order_item_order
+            onDelete: CASCADE
+        - createIndex:
+            indexName: ix_order_item_order_id
+            tableName: order_item
+            columns:
+              - column: { name: order_id }

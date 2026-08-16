@@ -1,0 +1,28 @@
+databaseChangeLog:
+  - changeSet:
+      id: 006-tier-benefit
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 TierBenefit - benefit_type is a plain string (ADR-006). Partial-unique-active-benefit constraint (MP-BEN-EDGE-04) deferred to the admin-write layer per docs/lld/01-entity-and-schema-design.md, since Day-1 has no write path that could violate it."
+      changes:
+        - createTable:
+            tableName: tier_benefit
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: tier_id, type: uuid, constraints: { nullable: false } }
+              - column: { name: benefit_type, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: params_json, type: TEXT, constraints: { nullable: false } }
+              - column: { name: effective_from, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: effective_to, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: version, type: bigint, defaultValueNumeric: 0, constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: tier_benefit
+            baseColumnNames: tier_id
+            referencedTableName: tier
+            referencedColumnNames: id
+            constraintName: fk_tier_benefit_tier
+            onDelete: CASCADE
+        - createIndex:
+            indexName: ix_tier_benefit_tier_id
+            tableName: tier_benefit
+            columns:
+              - column: { name: tier_id }

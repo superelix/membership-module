@@ -1,0 +1,16 @@
+databaseChangeLog:
+  # Order matters: each file's FK targets must already exist (member/plan/tier before the tables
+  # that reference them; tier_criteria_set before tier_criterion; subscription before
+  # membership_status; orders before order_item).
+  - include: { file: db/changelog/001-member.yaml }
+  - include: { file: db/changelog/002-plan.yaml }
+  - include: { file: db/changelog/003-tier.yaml }
+  - include: { file: db/changelog/004-tier-criteria-set.yaml }
+  - include: { file: db/changelog/005-tier-criterion.yaml }
+  - include: { file: db/changelog/006-tier-benefit.yaml }
+  - include: { file: db/changelog/007-subscription.yaml }
+  - include: { file: db/changelog/008-membership-status.yaml }
+  - include: { file: db/changelog/009-orders.yaml }
+  - include: { file: db/changelog/010-order-item.yaml }
+  - include: { file: db/changelog/011-tier-change-log.yaml }
+  - include: { file: db/changelog/012-idempotency-record.yaml }

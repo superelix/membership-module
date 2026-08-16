@@ -1,0 +1,45 @@
+databaseChangeLog:
+  - changeSet:
+      id: 007-subscription
+      author: membership-module
+      comment: >
+        docs/prd/07-data-model.md §3 Subscription. active_member_key is the nullable-unique-mirror
+        column that enforces MP-SUB-EDGE-01 (at most one active-ish subscription per member) at the
+        DB layer - docs/lld/01-entity-and-schema-design.md §4's pre-approved fallback to a
+        partial/filtered unique index, chosen because it is portable across H2 and Postgres without
+        depending on filtered-index syntax support.
+      changes:
+        - createTable:
+            tableName: subscription
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: member_id, type: uuid, constraints: { nullable: false } }
+              - column: { name: active_member_key, type: uuid, constraints: { unique: true, uniqueConstraintName: uk_subscription_active_member_key } }
+              - column: { name: plan_id, type: uuid, constraints: { nullable: false } }
+              - column: { name: price_at_subscription, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: currency_at_subscription, type: varchar(3), constraints: { nullable: false } }
+              - column: { name: status, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: current_period_start, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: current_period_end, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: auto_renew, type: boolean, constraints: { nullable: false } }
+              - column: { name: grace_period_ends_at, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: pending_plan_change_json, type: TEXT }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: version, type: bigint, defaultValueNumeric: 0, constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: subscription
+            baseColumnNames: member_id
+            referencedTableName: member
+            referencedColumnNames: id
+            constraintName: fk_subscription_member
+        - addForeignKeyConstraint:
+            baseTableName: subscription
+            baseColumnNames: plan_id
+            referencedTableName: plan
+            referencedColumnNames: id
+            constraintName: fk_subscription_plan
+        - createIndex:
+            indexName: ix_subscription_member_id
+            tableName: subscription
+            columns:
+              - column: { name: member_id }

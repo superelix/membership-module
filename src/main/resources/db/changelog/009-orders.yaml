@@ -1,0 +1,35 @@
+databaseChangeLog:
+  - changeSet:
+      id: 009-orders
+      author: membership-module
+      comment: >
+        docs/prd/07-data-model.md §3 Order (table named 'orders' - 'order' is a reserved SQL
+        keyword). benefit_snapshot_json is the frozen benefit snapshot from checkout-start
+        (MP-CHK-EDGE-01) - no separate BenefitSnapshot entity, docs/lld/01 §3.
+      changes:
+        - createTable:
+            tableName: orders
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: member_id, type: uuid, constraints: { nullable: false } }
+              - column: { name: status, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: subtotal, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: delivery_fee, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: discount_total, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: grand_total, type: "numeric(12,2)", constraints: { nullable: false } }
+              - column: { name: benefit_snapshot_json, type: TEXT, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: placed_at, type: TIMESTAMP WITH TIME ZONE }
+        - addForeignKeyConstraint:
+            baseTableName: orders
+            baseColumnNames: member_id
+            referencedTableName: member
+            referencedColumnNames: id
+            constraintName: fk_orders_member
+        - createIndex:
+            indexName: ix_orders_member_status_placed_at
+            tableName: orders
+            columns:
+              - column: { name: member_id }
+              - column: { name: status }
+              - column: { name: placed_at }

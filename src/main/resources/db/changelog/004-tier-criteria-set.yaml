@@ -1,0 +1,19 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-tier-criteria-set
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 TierCriteriaSet - 1:1 with Tier, keyed by tier_id. version added per docs/hld/README.md §7 Finding 7."
+      changes:
+        - createTable:
+            tableName: tier_criteria_set
+            columns:
+              - column: { name: tier_id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: combinator, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: version, type: bigint, defaultValueNumeric: 0, constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: tier_criteria_set
+            baseColumnNames: tier_id
+            referencedTableName: tier
+            referencedColumnNames: id
+            constraintName: fk_tier_criteria_set_tier
+            onDelete: CASCADE

@@ -1,0 +1,26 @@
+databaseChangeLog:
+  - changeSet:
+      id: 012-idempotency-record
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 IdempotencyRecord - scoped per ADR-005 to POST /subscriptions and POST /checkout."
+      changes:
+        - createTable:
+            tableName: idempotency_record
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: member_id, type: uuid, constraints: { nullable: false } }
+              - column: { name: endpoint, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: idempotency_key, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: response_status, type: int, constraints: { nullable: false } }
+              - column: { name: response_body_json, type: TEXT, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: idempotency_record
+            baseColumnNames: member_id
+            referencedTableName: member
+            referencedColumnNames: id
+            constraintName: fk_idempotency_record_member
+        - addUniqueConstraint:
+            tableName: idempotency_record
+            columnNames: member_id, endpoint, idempotency_key
+            constraintName: uk_idempotency_record_member_endpoint_key

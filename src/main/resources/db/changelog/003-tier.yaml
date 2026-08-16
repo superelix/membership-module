@@ -1,0 +1,13 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-tier
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 Tier - rank is a strict total order (MP-TIER-EDGE-08)"
+      changes:
+        - createTable:
+            tableName: tier
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: tier_code, type: varchar(255), constraints: { nullable: false, unique: true, uniqueConstraintName: uk_tier_tier_code } }
+              - column: { name: rank, type: int, constraints: { nullable: false, unique: true, uniqueConstraintName: uk_tier_rank } }
+              - column: { name: name, type: varchar(255), constraints: { nullable: false } }

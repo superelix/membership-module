@@ -1,0 +1,29 @@
+databaseChangeLog:
+  - changeSet:
+      id: 008-membership-status
+      author: membership-module
+      comment: >
+        docs/prd/07-data-model.md §3 MembershipStatus - 1:1 with Subscription, keyed by
+        subscription_id. This is the row TierEvaluationTransactionalOps locks via
+        PESSIMISTIC_WRITE (docs/lld/06-concurrency-and-transactions.md §1.2).
+      changes:
+        - createTable:
+            tableName: membership_status
+            columns:
+              - column: { name: subscription_id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: current_tier_id, type: uuid }
+              - column: { name: last_evaluated_at, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: version, type: bigint, defaultValueNumeric: 0, constraints: { nullable: false } }
+        - addForeignKeyConstraint:
+            baseTableName: membership_status
+            baseColumnNames: subscription_id
+            referencedTableName: subscription
+            referencedColumnNames: id
+            constraintName: fk_membership_status_subscription
+            onDelete: CASCADE
+        - addForeignKeyConstraint:
+            baseTableName: membership_status
+            baseColumnNames: current_tier_id
+            referencedTableName: tier
+            referencedColumnNames: id
+            constraintName: fk_membership_status_tier

@@ -1,0 +1,13 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-member
+      author: membership-module
+      comment: "docs/prd/07-data-model.md §3 Member; docs/lld/01-entity-and-schema-design.md §2"
+      changes:
+        - createTable:
+            tableName: member
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: external_user_id, type: varchar(255), constraints: { nullable: false, unique: true, uniqueConstraintName: uk_member_external_user_id } }
+              - column: { name: cohort_code, type: varchar(255) }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }

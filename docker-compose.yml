@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: membership-module-postgres
+    environment:
+      POSTGRES_DB: membership
+      POSTGRES_USER: membership
+      POSTGRES_PASSWORD: membership
+    ports:
+      - "5432:5432"
+    volumes:
+      - membership-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U membership -d membership"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  membership-postgres-data:
