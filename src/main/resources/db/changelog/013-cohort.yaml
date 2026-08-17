@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 013-cohort
+      author: membership-module
+      comment: >
+        docs/prd/02-membership-tiers.md §8 Q2 - the cohort catalog. Member.cohortCode (001-member.yaml)
+        was a free string with no real list behind it; this table is that list. No FK from
+        member.cohort_code to cohort.code is added here - validity is enforced at the application
+        layer (CohortNotFoundException) when a member sets their cohort, matching how planCode
+        validity is enforced in SubscriptionService rather than solely via Subscription.plan_id's FK.
+      changes:
+        - createTable:
+            tableName: cohort
+            columns:
+              - column: { name: id, type: uuid, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: code, type: varchar(255), constraints: { nullable: false, unique: true, uniqueConstraintName: uk_cohort_code } }
+              - column: { name: name, type: varchar(255), constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }

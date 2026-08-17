@@ -62,9 +62,14 @@ class TierQueryServiceTest extends AbstractPostgresIntegrationTest {
         TierResponse gold = response.tiers().stream().filter(t -> t.tierCode().equals("GOLD")).findFirst().orElseThrow();
 
         assertThat(gold.combinator()).isEqualTo("ANY");
-        assertThat(gold.criteria()).hasSize(1);
-        assertThat(gold.criteria().get(0).type()).isEqualTo("ORDER_COUNT_MIN");
-        assertThat(gold.criteria().get(0).params()).containsEntry("minCount", 5);
+        // GOLD carries two criteria as of the cohort-choosing feature: ORDER_COUNT_MIN (original)
+        // and COHORT_MEMBERSHIP=EARLY_ADOPTER (MP-AC-010), combined ANY.
+        assertThat(gold.criteria()).hasSize(2);
+        assertThat(gold.criteria()).extracting(c -> c.type()).containsExactlyInAnyOrder("ORDER_COUNT_MIN", "COHORT_MEMBERSHIP");
+        var orderCountCriterion = gold.criteria().stream().filter(c -> c.type().equals("ORDER_COUNT_MIN")).findFirst().orElseThrow();
+        assertThat(orderCountCriterion.params()).containsEntry("minCount", 5);
+        var cohortCriterion = gold.criteria().stream().filter(c -> c.type().equals("COHORT_MEMBERSHIP")).findFirst().orElseThrow();
+        assertThat(cohortCriterion.params()).containsEntry("cohortCode", "EARLY_ADOPTER");
 
         assertThat(gold.benefits()).extracting(b -> b.type()).contains("PERCENTAGE_DISCOUNT", "FREE_DELIVERY");
     }
